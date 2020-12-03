@@ -6,6 +6,7 @@
 #include <NTPClient.h>  //https://github.com/taranais/NTPClient
 #include <WiFiUdp.h>
 #include <Adafruit_NeoPixel.h>
+#include <PubSubClient.h>
 
 
 // Constants
@@ -23,6 +24,7 @@ AsyncWebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(1337);
 char msg_buf[100];
 int led_state = 1;
+int clock_state = 1;
 int brightness = 255;
 bool dots = true;
 int r_val = 255;
@@ -30,6 +32,12 @@ int g_val = 255;
 int b_val = 255;
 unsigned long _time;
 unsigned long next_time;
+
+// Add your MQTT Broker IP address, example:
+const char* mqtt_server = "192.168.1.11";
+
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
 
 
 
@@ -111,19 +119,17 @@ void onWebSocketEvent(uint8_t client_num,
         const int _b = docRecieved["b"];
         
         
-        // Toggle LED
+        // Toggle clock_state
         if ( strcmp((char *)command, "toggleLED") == 0 ) {
-          //led_state = led_state ? 0 : 1;
-          if (led_state = 0){led_state = 1;}
-          else {led_state = 0;}
-          
-          Serial.printf("Toggling LED to %u\n", led_state);
-          digitalWrite(led_pin, led_state);
+          Serial.printf("Toggling clock_state to %u\n", clock_state);
+          clock_state = clock_state ? 0 : 1;         
+          Serial.printf("Toggling clock_state to %u\n", clock_state);
+          digitalWrite(led_pin, clock_state);
   
-        // Report the state of the LED
+        // Report clock_state
         } else if ( strcmp((char *)command, "getLEDState") == 0 ) {
           docSend["tag"] = "led_state";
-          docSend["value"] = led_state;
+          docSend["value"] = clock_state;
           serializeJson(docSend, outputJson);
           const char* charOutputJson = outputJson.c_str();
           sprintf(msg_buf, "%s", charOutputJson);
@@ -145,7 +151,7 @@ void onWebSocketEvent(uint8_t client_num,
           Serial.printf("Sending to [%u]: %s\n", client_num, msg_buf);
           webSocket.sendTXT(client_num, msg_buf);
 
-        // Report color
+        // Set color
         } else if ( strcmp((char *)command, "setColor") == 0 ) {
           r_val = _r;
           g_val = _g;
@@ -207,6 +213,46 @@ void onPageNotFound(AsyncWebServerRequest *request) {
   request->send(404, "text/plain", "Not found");
 }
 
+void callback(char* topic, byte* message, unsigned int length) {
+  Serial.print("Message arrived on topic: ");
+  Serial.print(topic);
+  Serial.print(". Message: ");
+  String messageTemp;
+  StaticJsonDocument<200> docSend;
+  String outputJson;
+
+  
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)message[i]);
+    messageTemp += (char)message[i];
+  }
+  Serial.println();
+
+  // If a message is received on the topic cmnd/clock/power, you check if the message is either "on" or "off". 
+  // Changes the output state according to the message
+  if (String(topic) == "cmnd/clock/power") {
+    Serial.print("Changing output to ");
+    
+   if(messageTemp == "on" or messageTemp == "ON"){
+
+      Serial.println("clock_state: on");
+      clock_state = 1;
+      docSend["power"] = "on";
+    }
+    else if(messageTemp == "off" or messageTemp == "OFF"){     
+      Serial.println("clock_state: off");
+      clock_state = 0;
+      docSend["power"] = "off";
+    }
+
+    serializeJson(docSend, outputJson);
+    const char* charOutputJson = outputJson.c_str();
+    sprintf(msg_buf, "%s", charOutputJson);
+
+    mqttClient.publish("tele/clock/state", charOutputJson);
+  }
+}
+
 /***********************************************************
  * Main
  */
@@ -248,6 +294,9 @@ void setup() {
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
 
+  mqttClient.setServer(mqtt_server, 1883);
+  mqttClient.setCallback(callback);
+  
   // Initialize a NTPClient to get time
   timeClient.begin();
   // Set offset time in seconds to adjust for your timezone, for example:
@@ -256,6 +305,9 @@ void setup() {
   // GMT -1 = -3600
   // GMT 0 = 0
   timeClient.setTimeOffset(3600);
+
+
+  
 
   strip.setBrightness(brightness);
   strip.show(); // Initialize all pixels to 'off'
@@ -382,6 +434,7 @@ void printClock(){
     ciffers[3] = (intHour - intHour % 10)/10;
   else
     ciffers[3] = 10;
+  
   ciffers[2] = intHour % 10;
   ciffers[1] = (intMinute - intMinute % 10)/10;
   ciffers[0] = intMinute % 10;
@@ -410,13 +463,32 @@ void printClock(){
       strip.setPixelColor(pos, strip.Color(0, 0, 0));   
   }
 
-  if (led_state = 0) {
+  if (clock_state == 0) {
     strip.setBrightness(0);  
     }
   else {
     strip.setBrightness(brightness);
     }
   strip.show();
+}
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!mqttClient.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (mqttClient.connect("ClockClient")) {
+      Serial.println("connected");
+      // Subscribe
+      mqttClient.subscribe("cmnd/clock/power/#");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(mqttClient.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
 }
 
 void loop() {
@@ -430,5 +502,10 @@ void loop() {
     
   // Look for and handle WebSocket data
   webSocket.loop();
+
+  if (!mqttClient.connected()) {
+    reconnect();
+  }
+  mqttClient.loop();
 
 }
