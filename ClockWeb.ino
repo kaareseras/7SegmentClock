@@ -125,6 +125,7 @@ void onWebSocketEvent(uint8_t client_num,
           clock_state = clock_state ? 0 : 1;         
           Serial.printf("Toggling clock_state to %u\n", clock_state);
           digitalWrite(led_pin, clock_state);
+          printClock();
   
         // Report clock_state
         } else if ( strcmp((char *)command, "getLEDState") == 0 ) {
@@ -250,6 +251,8 @@ void callback(char* topic, byte* message, unsigned int length) {
     sprintf(msg_buf, "%s", charOutputJson);
 
     mqttClient.publish("tele/clock/state", charOutputJson);
+
+    printClock();
   }
 }
 
@@ -497,7 +500,10 @@ void loop() {
 
   if (next_time < _time) {
      next_time = _time + 1000;
-     printClock(); 
+     if ( clock_state == 1){
+       printClock(); 
+     }
+    
   }
     
   // Look for and handle WebSocket data
