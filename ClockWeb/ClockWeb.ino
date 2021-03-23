@@ -443,11 +443,11 @@ void printClock(){
   ciffers[0] = intMinute % 10;
 
   //Debug
-  //Serial.println("ciffers");
-  //for ( int i = 0; i <4; i++){
-  //    Serial.print(ciffers[3-i]);
-  //  }
-  //Serial.println("");
+  Serial.println("ciffers");
+  for ( int i = 0; i <4; i++){
+      Serial.print(ciffers[3-i]);
+  }
+  Serial.println("");
 
   //Populate bits to be shown
   ledstrip = IntTosevenSeg(ciffers[0]) << 0;
