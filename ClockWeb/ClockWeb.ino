@@ -17,7 +17,7 @@ const char *msg_get_led = "getLEDState";
 const int dns_port = 53;
 const int http_port = 80;
 const int ws_port = 1337;
-const int led_pin = 15;
+const int led_pin = 4;
 
 // Globals
 AsyncWebServer server(80);
