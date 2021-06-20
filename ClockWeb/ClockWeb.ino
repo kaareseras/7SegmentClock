@@ -7,6 +7,9 @@
 #include <WiFiUdp.h>
 #include <Adafruit_NeoPixel.h>
 #include <PubSubClient.h>
+#include <TimeLib.h>
+#include <time.h>
+#include <Timezone.h>    // https://github.com/JChristensen/Timezone
 
 
 // Constants
@@ -41,9 +44,21 @@ PubSubClient mqttClient(espClient);
 
 
 
-// Define NTP Client to get time
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP);
+ 
+// By default 'pool.ntp.org' is used with 60 seconds update interval and
+// no offset
+// NTPClient timeClient(ntpUDP);
+ 
+// You can specify the time server pool and the offset, (in seconds)
+// additionaly you can specify the update interval (in milliseconds).
+int GTMOffset = 0; // SET TO UTC TIME
+NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", GTMOffset*60*60, 60*60*1000);
+ 
+// Central European Time (Frankfurt, Paris)
+TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};     // Central European Summer Time
+TimeChangeRule CET = {"CET ", Last, Sun, Oct, 3, 60};       // Central European Standard Time
+Timezone CE(CEST, CET);
 
 // Variables to save date and time
 String formattedDate;
@@ -76,6 +91,46 @@ long numbers[] = {
 /***********************************************************
  * Functions
  */
+
+/**
+ * Input time in epoch format and return tm time format
+ * by Renzo Mischianti <www.mischianti.org> 
+ */
+static tm getDateTimeByParams(long time){
+    struct tm *newtime;
+    const time_t tim = time;
+    newtime = localtime(&tim);
+    return *newtime;
+}
+/**
+ * Input tm time format and return String with format pattern
+ * by Renzo Mischianti <www.mischianti.org>
+ */
+static String getDateTimeStringByParams(tm *newtime, char* pattern = (char *)"%d/%m/%Y %H:%M:%S"){
+    char buffer[30];
+    strftime(buffer, 30, pattern, newtime);
+    return buffer;
+}
+ 
+/**
+ * Input time in epoch format format and return String with format pattern
+ * by Renzo Mischianti <www.mischianti.org> 
+ */
+static String getEpochStringByParams(long time, char* pattern = (char *)"%d/%m/%Y %H:%M:%S"){
+//    struct tm *newtime;
+    tm newtime;
+    newtime = getDateTimeByParams(time);
+    return getDateTimeStringByParams(&newtime, pattern);
+}
+
+static String getEpochStringByTime(long time, char* pattern = (char *)"%H:%M:%S"){
+//    struct tm *newtime;
+    tm newtime;
+    newtime = getDateTimeByParams(time);
+    return getDateTimeStringByParams(&newtime, pattern);
+}
+
+ 
 
 // Callback: receiving any WebSocket message
 void onWebSocketEvent(uint8_t client_num,
@@ -300,14 +355,15 @@ void setup() {
   mqttClient.setServer(mqtt_server, 1883);
   mqttClient.setCallback(callback);
   
-  // Initialize a NTPClient to get time
-  timeClient.begin();
-  // Set offset time in seconds to adjust for your timezone, for example:
-  // GMT +1 = 3600
-  // GMT +8 = 28800
-  // GMT -1 = -3600
-  // GMT 0 = 0
-  timeClient.setTimeOffset(3600);
+ timeClient.begin();
+  delay ( 1000 );
+  if (timeClient.update()){
+     Serial.print ( "Adjust local clock" );
+     unsigned long epoch = timeClient.getEpochTime();
+     setTime(epoch);
+  }else{
+     Serial.print ( "NTP Update not WORK!!" );
+  }
 
 
   
@@ -421,13 +477,19 @@ long IntTosevenSeg(int number){
 void printClock(){
 
   //Get time
-  while(!timeClient.update()) {
-    timeClient.forceUpdate();
-  }
+  //while(!timeClient.update()) {
+  //  timeClient.forceUpdate();
+  //}
 
-  int intHour = timeClient.getHours();
-  int intMinute = timeClient.getMinutes();
-  int intSecond = timeClient.getSeconds();
+  //int intHour = timeClient.getHours();
+  //int intMinute = timeClient.getMinutes();
+  //int intSecond = timeClient.getSeconds();
+
+
+  String strTime = getEpochStringByTime(CE.toLocal(now()));
+  int intHour = strTime.substring(0, 2).toInt();
+  int intMinute = strTime.substring(3, 5).toInt();
+  int intSecond = strTime.substring(6).toInt();
 
   dots = !dots;
 
